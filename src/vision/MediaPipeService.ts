@@ -81,7 +81,9 @@ export class MediaPipeService {
       const results = this.landmarker.detectForVideo(video, timestamp);
       if (results.landmarks && results.landmarks.length > 0) {
         const rawLandmarks = results.landmarks[0] as HandLandmarks;
-        return this.smoothLandmarks(rawLandmarks);
+        const smoothed = this.smoothLandmarks(rawLandmarks);
+        smoothed.aspectRatio = video.videoWidth / (video.videoHeight || 1);
+        return smoothed;
       } else {
         this.lastSmoothedLandmarks = null;
       }

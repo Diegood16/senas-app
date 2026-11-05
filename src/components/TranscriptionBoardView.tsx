@@ -1,8 +1,10 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { CameraView } from './CameraView';
-import { HandLandmarks } from '../types/vision';
+import { HandLandmarks, CameraTrackingState } from '../types/vision';
+import { getCalibration } from '../vision/RecognitionCalibration';
 import { GestureClassifier } from '../vision/GestureClassifier';
-import { DebounceEngine } from '../transcription/DebounceEngine';
+import { LiveTranscriptionEngine } from '../transcription/LiveTranscriptionEngine';
+import { RecognitionSamples } from '../vision/RecognitionSamples';
 import { TextToSpeechHelper } from '../transcription/TextToSpeechHelper';
 import { DACTYLOLOGY_ALPHABET } from '../data/alphabetData';
 import { GameSettings } from '../types/game';
@@ -19,119 +21,104 @@ import {
   Info,
 } from 'lucide-react';
 
+const paceByHand = new Map<string, number>();
+
 interface TranscriptionBoardViewProps {
   settings: GameSettings;
 }
 
 export const TranscriptionBoardView: React.FC<TranscriptionBoardViewProps> = ({ settings }) => {
-  const [currentWord, setCurrentWord] = useState('');
   const [fullSentence, setFullSentence] = useState('');
+  const currentWord = fullSentence.split(' ').pop() || '';
   const [candidateLetter, setCandidateLetter] = useState<string | null>(null);
   const [holdProgress, setHoldProgress] = useState(0);
   const [lastEmittedLetter, setLastEmittedLetter] = useState<string | null>(null);
+  const [recognitionHint, setRecognitionHint] = useState('Completa el escaneo y pulsa Comenzar.');
   const [copied, setCopied] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isPaused, setIsPaused] = useState(true);
+  const [holdMs, setHoldMs] = useState(() => paceByHand.get(settings.handDominance) || 700);
+  const [expectedText, setExpectedText] = useState('');
+  const [sampleMessage, setSampleMessage] = useState('');
+  const engineRef = useRef(new LiveTranscriptionEngine(holdMs));
+  const samplesRef = useRef(new RecognitionSamples(12000, 160));
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previousTrackingRef = useRef<CameraTrackingState>('calibrating');
 
-  const debounceEngineRef = useRef<DebounceEngine>(new DebounceEngine({ minHoldMs: 480, confidenceThreshold: 0.85 }));
-  const lastActiveTimeRef = useRef<number>(performance.now());
-  const inactivityTimerRef = useRef<number | null>(null);
+  const interrupt = useCallback(() => {
+    engineRef.current.interrupt(); setHoldProgress(0); setCandidateLetter(null);
+  }, []);
 
-  // Manejar adición de letra confirmada
-  const handleConfirmedLetter = useCallback(
-    (letter: string) => {
-      setLastEmittedLetter(letter);
-      Haptics.subtle();
-
-      setCurrentWord(prev => prev + letter);
-      setFullSentence(prev => prev + letter);
-
-      // Reiniciar temporizador de espacio automático tras 1.4s de inactividad
-      if (inactivityTimerRef.current !== null) {
-        window.clearTimeout(inactivityTimerRef.current);
-      }
-      inactivityTimerRef.current = window.setTimeout(() => {
-        setCurrentWord('');
-        setFullSentence(prev => (prev.endsWith(' ') || prev.length === 0 ? prev : prev + ' '));
-      }, 1500);
-    },
-    []
-  );
-
-  // Frame de MediaPipe
-  const handleLandmarks = useCallback(
-    (landmarks: HandLandmarks | null) => {
-      const now = performance.now();
-
-      if (!landmarks) {
-        setCandidateLetter(null);
-        setHoldProgress(0);
-        debounceEngineRef.current.process(null, 0, now);
-        return;
-      }
-
-      lastActiveTimeRef.current = now;
-      const isMirrored = settings.handDominance === 'Right';
-      const result = GestureClassifier.classify(landmarks, isMirrored);
-
-      if (result) {
-        setCandidateLetter(result.letter);
-
-        const { confirmedLetter, holdProgress } = debounceEngineRef.current.process(
-          result.letter,
-          result.confidence,
-          now
-        );
-
-        setHoldProgress(holdProgress);
-
-        if (confirmedLetter) {
-          handleConfirmedLetter(confirmedLetter);
-        }
-      } else {
-        setCandidateLetter(null);
-        setHoldProgress(0);
-        debounceEngineRef.current.process(null, 0, now);
-      }
-    },
-    [handleConfirmedLetter, settings.handDominance]
-  );
-
-  // Acciones Manuales de la Pizarra
-  const handleAddSpace = () => {
-    setCurrentWord('');
-    setFullSentence(prev => (prev.endsWith(' ') || prev.length === 0 ? prev : prev + ' '));
-  };
-
-  const handleDeleteLast = () => {
-    setFullSentence(prev => prev.slice(0, -1));
-    setCurrentWord(prev => prev.slice(0, -1));
-  };
-
-  const handleClearAll = () => {
-    setCurrentWord('');
-    setFullSentence('');
-    setLastEmittedLetter(null);
-    debounceEngineRef.current.reset();
-  };
-
-  const handleCopyText = async () => {
-    if (!fullSentence) return;
-    try {
-      await navigator.clipboard.writeText(fullSentence);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (e) {
-      console.warn('Error al copiar:', e);
+  const handleLandmarks = useCallback((landmarks: HandLandmarks | null, tracking: CameraTrackingState = landmarks ? 'ready' : 'absent') => {
+    const now = performance.now();
+    if (tracking === 'calibrating' && previousTrackingRef.current !== 'calibrating') samplesRef.current = new RecognitionSamples(12000, 160);
+    previousTrackingRef.current = tracking;
+    const mirrored = settings.handDominance === 'Right';
+    const result = landmarks && tracking === 'ready' ? GestureClassifier.classify(landmarks, mirrored, undefined, getCalibration(mirrored)) : null;
+    if (isPaused) {
+      samplesRef.current.add(now, landmarks, result?.letter || null, { tracking, paused: true });
+      return;
     }
-  };
+    const decision = engineRef.current.process({ letter: result?.letter || null, score: result?.confidence || 0, points: landmarks, tracking, now });
+    samplesRef.current.add(now, landmarks, result?.letter || null, { tracking, confirmedLetter: decision.confirmedLetter, paused: false });
+    setCandidateLetter(decision.candidate);
+    setHoldProgress(decision.progress);
+    const messages: Partial<Record<typeof decision.state, string>> = {
+      calibrating: 'Completa el escaneo general antes de deletrear.',
+      'poor-quality': 'Seguimiento insuficiente. Revisa el encuadre y la iluminación.',
+      absent: 'Para repetir una letra, retira la mano 0,7 s; para separar palabras, 1,6 s.',
+      moving: 'Ajustando la postura. Mantén los dedos quietos para confirmar.',
+      held: 'Letra registrada. Cambia de postura o pulsa Repetir letra.',
+      holding: 'Mantén la postura hasta completar la barra.',
+      confirmed: 'Letra registrada: ' + decision.confirmedLetter,
+      ambiguous: result?.hint || 'Postura ambigua o no reconocida. Ajusta la mano.'
+    };
+    setRecognitionHint(messages[decision.state] || 'Muestra la mano frente a la cámara.');
+    if (decision.confirmedLetter) {
+      setLastEmittedLetter(decision.confirmedLetter);
+      setFullSentence(prev => prev + decision.confirmedLetter);
+      if (settings.vibrationEnabled) Haptics.subtle();
+    }
+    if (decision.addSpace) setFullSentence(prev => prev && !prev.endsWith(' ') ? prev + ' ' : prev);
+  }, [isPaused, settings.handDominance, settings.vibrationEnabled]);
 
+  useEffect(() => {
+    const pace = paceByHand.get(settings.handDominance) || 700;
+    setHoldMs(pace); engineRef.current = new LiveTranscriptionEngine(pace);
+    samplesRef.current = new RecognitionSamples(12000, 160);
+    setIsPaused(true); setCandidateLetter(null); setHoldProgress(0); setSampleMessage('');
+    setRecognitionHint('Completa el escaneo y pulsa Comenzar.');
+  }, [settings.handDominance]);
+
+  useEffect(() => () => {
+    if (copyTimerRef.current !== null) clearTimeout(copyTimerRef.current);
+    TextToSpeechHelper.stop();
+  }, []);
+
+  const handleAddSpace = () => {
+    interrupt();
+    setFullSentence(prev => prev && !prev.endsWith(' ') ? prev + ' ' : prev);
+  };
+  const handleDeleteLast = () => { interrupt(); setFullSentence(prev => prev.slice(0, -1)); };
+  const handleClearAll = () => {
+    setIsPaused(true); engineRef.current.reset(); setFullSentence('');
+    setCandidateLetter(null); setHoldProgress(0); setLastEmittedLetter(null);
+    samplesRef.current = new RecognitionSamples(12000, 160);
+    setRecognitionHint('Texto limpio. Pulsa Comenzar cuando estés listo.');
+    TextToSpeechHelper.stop(); setIsSpeaking(false);
+  };
+  const handleCopyText = async () => {
+    try {
+      await navigator.clipboard.writeText(fullSentence); setCopied(true);
+      if (copyTimerRef.current !== null) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setCopied(false), 2000);
+    } catch { setRecognitionHint('No se pudo copiar el texto. Puedes seleccionarlo en la pizarra.'); }
+  };
   const handleSpeakText = () => {
     if (!fullSentence.trim()) return;
-    setIsSpeaking(true);
-    TextToSpeechHelper.speak(fullSentence, () => {
-      setIsSpeaking(false);
-    });
+    setIsSpeaking(true); TextToSpeechHelper.speak(fullSentence, () => setIsSpeaking(false));
   };
+  const pauseForEditing = () => { setIsPaused(true); interrupt(); };
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -141,13 +128,13 @@ export const TranscriptionBoardView: React.FC<TranscriptionBoardViewProps> = ({ 
           <div className="max-w-2xl">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 text-xs font-semibold mb-3">
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Modo Traductor y Transcriptor en Vivo</span>
+              <span>Transcriptor de Deletreo en Vivo</span>
             </div>
             <h2 className="text-2xl md:text-3xl font-extrabold text-white mb-2">
-              Traducción Continua de Señas a Texto y Voz
+              Deletreo a Texto y Voz
             </h2>
             <p className="text-slate-300 text-sm md:text-base leading-relaxed">
-              Deletrea con naturalidad frente a la cámara. El sistema filtra los movimientos intermedios, ensambla tus letras en palabras y oraciones completas, e incluye síntesis de voz para que personas oyentes puedan leer y escuchar en tiempo real lo que estás explicando.
+              Completa el escaneo general y comienza cuando estés listo. Solo se añaden letras que mantienen una postura estable; las detecciones dudosas quedan pendientes. Puedes pausar y corregir el texto antes de escucharlo.
             </p>
           </div>
 
@@ -156,8 +143,8 @@ export const TranscriptionBoardView: React.FC<TranscriptionBoardViewProps> = ({ 
               <Info className="w-4 h-4 text-sky-400" />
               <span>Tips para un deletreo fluido:</span>
             </p>
-            <p>• Sostén cada letra por medio segundo (0.5 s) para registrarla.</p>
-            <p>• Para separar palabras, baja o relaja la mano 1.5 s y se añadirá un espacio automáticamente.</p>
+            <p>• Mantén cada letra hasta completar la barra. Ajusta el ritmo a tu comodidad.</p>
+            <p>• Retira la mano 0,7 s para repetir una letra y 1,6 s para separar palabras. También puedes usar los botones.</p>
           </div>
         </div>
       </div>
@@ -166,7 +153,31 @@ export const TranscriptionBoardView: React.FC<TranscriptionBoardViewProps> = ({ 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Columna Izquierda: Cámara con Indicador de Letra Candidata */}
         <div className="lg:col-span-6 space-y-4">
-          <CameraView onLandmarksDetected={handleLandmarks} isMirrored={settings.handDominance === 'Right'} />
+          <CameraView key={settings.handDominance} onLandmarksDetected={handleLandmarks} isMirrored={settings.handDominance === 'Right'} />
+
+          <div className="rounded-2xl border border-slate-700 bg-slate-800/80 p-4 space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <button aria-pressed={!isPaused} className="rounded-xl bg-sky-600 px-4 py-2 font-semibold text-white hover:bg-sky-500" onClick={() => {
+                interrupt(); setIsPaused(value => !value);
+              }}>{isPaused ? 'Comenzar' : 'Pausar'}</button>
+              <label className="text-sm text-slate-300 flex items-center gap-2">Ritmo
+                <select value={holdMs} className="bg-slate-900 rounded-lg border border-slate-600 p-2 text-white" onChange={event => {
+                  const value = Number(event.target.value);
+                  paceByHand.set(settings.handDominance, value); setHoldMs(value);
+                  engineRef.current.setHoldMs(value); setCandidateLetter(null); setHoldProgress(0);
+                }}>
+                  <option value={500}>Ágil · 0,5 s</option>
+                  <option value={700}>Normal · 0,7 s</option>
+                  <option value={1100}>Pausado · 1,1 s</option>
+                </select>
+              </label>
+              <button className="rounded-xl border border-slate-600 px-3 py-2 text-sm text-white hover:bg-slate-700" onClick={() => {
+                engineRef.current.allowRepeat(); setCandidateLetter(null); setHoldProgress(0);
+                setRecognitionHint('Listo para repetir. Mantén de nuevo la letra hasta completar la barra.');
+              }}>Repetir letra</button>
+            </div>
+            <p className="text-xs text-slate-400">El ritmo se recuerda por mano durante esta sesión. Las posturas que el sistema considera ambiguas quedan pendientes. Si cambia la persona, usa Recalibrar.</p>
+          </div>
 
           {/* Estado de Estabilidad de la Letra Actual con Imagen de Referencia */}
           <div className="bg-slate-800/80 border border-slate-700 rounded-2xl p-4 flex items-center justify-between">
@@ -195,10 +206,10 @@ export const TranscriptionBoardView: React.FC<TranscriptionBoardViewProps> = ({ 
                 <span className="text-[11px] uppercase tracking-wider font-semibold text-slate-400 block">
                   Letra en Detección
                 </span>
-                <p className="text-sm font-medium text-slate-200">
+                <p role="status" className="text-sm font-medium text-slate-200">
                   {candidateLetter
-                    ? `Detectando letra ${candidateLetter} (${holdProgress}%)`
-                    : 'Realiza una seña frente a la cámara'}
+                    ? `Postura candidata: ${candidateLetter}`
+                    : (isPaused ? 'Transcripción en pausa. Pulsa Comenzar.' : recognitionHint)}
                 </p>
               </div>
             </div>
@@ -210,6 +221,26 @@ export const TranscriptionBoardView: React.FC<TranscriptionBoardViewProps> = ({ 
                 style={{ width: `${holdProgress}%` }}
               />
             </div>
+          </div>
+
+          <p role="status" className="text-sm text-slate-300">{isPaused ? 'Transcripción en pausa. El texto se conserva.' : recognitionHint}</p>
+
+          <div className="rounded-2xl border border-slate-700 bg-slate-800/80 p-4 space-y-2">
+            <label htmlFor="expected-spelling" className="block text-xs text-slate-300">Texto que intentabas deletrear (opcional, para revisar fallos)</label>
+            <input id="expected-spelling" value={expectedText} maxLength={80} onFocus={pauseForEditing}
+              onChange={event => setExpectedText(event.target.value)} placeholder="Por ejemplo: HOLA"
+              className="w-full rounded-lg border border-slate-600 bg-slate-900 p-2 text-white" />
+            <button className="rounded-lg bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600" onClick={() => {
+              const json = samplesRef.current.snapshotTranscription(expectedText, fullSentence, settings.handDominance, getCalibration(settings.handDominance === 'Right'), holdMs);
+              if (!json) { setSampleMessage('Completa el escaneo y muestra la mano para guardar mediciones.'); return; }
+              const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+              const link = document.createElement('a'); link.href = url; link.download = 'intento-transcriptor.json';
+              document.body.appendChild(link); link.click(); link.remove();
+              window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+              setSampleMessage('Muestra guardada en tu equipo. No se envió a ningún servidor.');
+            }}>Guardar muestra del transcriptor</button>
+            <p className="text-xs text-slate-400">Guarda hasta 12 segundos de puntos y resultados, el texto esperado y la pizarra actual. Sin fotos ni video. El texto esperado no modifica el reconocimiento ni entrena al sistema.</p>
+            <p role="status" className="text-xs text-sky-300">{sampleMessage}</p>
           </div>
 
           {/* Tira Rápida Visual de Señas Limpias (Cheat Sheet) */}
@@ -254,16 +285,13 @@ export const TranscriptionBoardView: React.FC<TranscriptionBoardViewProps> = ({ 
             {/* Área de Visualización de la Oración */}
             <div className="bg-slate-950 rounded-2xl p-6 border border-slate-800 min-h-[200px] max-h-[300px] overflow-y-auto mb-6 flex flex-col justify-between">
               <div>
-                {fullSentence ? (
-                  <p className="text-2xl md:text-3xl font-medium text-white tracking-wide leading-relaxed font-sans select-all">
-                    {fullSentence}
-                    <span className="inline-block w-2.5 h-6 bg-sky-400 ml-1.5 animate-pulse" />
-                  </p>
-                ) : (
-                  <p className="text-slate-500 text-base italic flex items-center justify-center h-32">
-                    Las palabras que deletrees con tus manos se traducirán aquí en tiempo real...
-                  </p>
-                )}
+                <label htmlFor="transcription-text" className="sr-only">Texto transcrito. Editarlo pausa la captura.</label>
+                <textarea id="transcription-text" value={fullSentence} onFocus={pauseForEditing}
+                  onChange={event => { interrupt(); setFullSentence(event.target.value); }}
+                  placeholder="Las letras confirmadas aparecerán aquí. Puedes corregir este texto."
+                  className="w-full min-h-[160px] bg-transparent text-2xl text-white leading-relaxed resize-y focus:outline-sky-400" />
+                <p className="text-xs text-slate-400">Editar el texto pausa la captura. Pulsa Comenzar para continuar.</p>
+                <span role="status" className="sr-only">{lastEmittedLetter ? 'Última letra confirmada: ' + lastEmittedLetter : ''}</span>
               </div>
 
               {currentWord && (

@@ -2,6 +2,9 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import confetti from 'canvas-confetti';
 import { CameraView } from './CameraView';
 import { HandLandmarks } from '../types/vision';
+import { getCalibration } from '../vision/RecognitionCalibration';
+import { PoseHoldEngine } from '../vision/PoseHoldEngine';
+import { RecognitionSamples } from '../vision/RecognitionSamples';
 import { GestureClassifier } from '../vision/GestureClassifier';
 import { DACTYLOLOGY_ALPHABET } from '../data/alphabetData';
 import { SignLetter } from '../types/signs';
@@ -31,15 +34,30 @@ export const AcademyGameView: React.FC<AcademyGameViewProps> = ({
   
   // Detección en vivo
   const [detectedLetter, setDetectedLetter] = useState<string | null>(null);
-  const [confidence, setConfidence] = useState(0);
+
   const [hint, setHint] = useState<string>('Muestra tu mano frente a la cámara');
   const [holdProgress, setHoldProgress] = useState(0);
   const [isSuccess, setIsSuccess] = useState(false);
   const [showTips, setShowTips] = useState(true);
 
-  const holdStartTimeRef = useRef<number | null>(null);
-  const lastSuccessFrameTimeRef = useRef<number>(0);
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const successLockRef = useRef(false);
+  const holdEngineRef = useRef(new PoseHoldEngine());
+  const samplesRef = useRef(new RecognitionSamples());
+  const [sampleMessage, setSampleMessage] = useState('');
+
   const targetSign: SignLetter = DACTYLOLOGY_ALPHABET[currentLetterIdx];
+
+  useEffect(() => {
+    if (successTimerRef.current !== null) clearTimeout(successTimerRef.current);
+    successLockRef.current = false;
+    samplesRef.current = new RecognitionSamples();
+    setSampleMessage('');
+    holdEngineRef.current.reset();
+    setHoldProgress(0); setIsSuccess(false); setDetectedLetter(null);
+  }, [currentLetterIdx, settings.handDominance]);
+
+  useEffect(() => () => { if (successTimerRef.current !== null) clearTimeout(successTimerRef.current); }, []);
 
   // Cambio de letra inicial si se pasa como prop
   useEffect(() => {
@@ -48,11 +66,13 @@ export const AcademyGameView: React.FC<AcademyGameViewProps> = ({
       setCurrentLetterIdx(idx);
       setIsSuccess(false);
       setHoldProgress(0);
-      holdStartTimeRef.current = null;
+      holdEngineRef.current.reset();
     }
   }, [initialLetter]);
 
   const triggerSuccessCelebration = useCallback(() => {
+    if (successLockRef.current) return;
+    successLockRef.current = true;
     setIsSuccess(true);
     setScore(prev => prev + 100 + streak * 20);
     setStreak(prev => {
@@ -66,7 +86,7 @@ export const AcademyGameView: React.FC<AcademyGameViewProps> = ({
     }
 
     // Respuesta háptica y auditiva accesible
-    Haptics.success();
+    if (settings.vibrationEnabled) Haptics.success();
     if (settings.speechEnabled) {
       TextToSpeechHelper.speak(`¡Excelente! Letra ${targetSign.letter} completada.`);
     }
@@ -80,73 +100,45 @@ export const AcademyGameView: React.FC<AcademyGameViewProps> = ({
     });
 
     // Pasar a la siguiente letra automáticamente después de 1.4s
-    setTimeout(() => {
+    successTimerRef.current = setTimeout(() => {
       setCurrentLetterIdx(prev => (prev + 1) % DACTYLOLOGY_ALPHABET.length);
       setIsSuccess(false);
       setHoldProgress(0);
-      holdStartTimeRef.current = null;
+      holdEngineRef.current.reset();
     }, 1400);
-  }, [completedList, settings.speechEnabled, streak, targetSign.letter]);
+  }, [completedList, settings.speechEnabled, settings.vibrationEnabled, streak, targetSign.letter]);
 
   // Manejador del frame de MediaPipe
   const handleLandmarks = useCallback(
     (landmarks: HandLandmarks | null) => {
       const now = performance.now();
 
+      if (successLockRef.current) return;
       if (!landmarks) {
+        samplesRef.current.add(now, null, null);
         setDetectedLetter(null);
-        setConfidence(0);
-        if (now - lastSuccessFrameTimeRef.current > 350) {
-          setHoldProgress(0);
-          holdStartTimeRef.current = null;
-        }
+        const state = holdEngineRef.current.process(null, targetSign.letter, now, settings.holdTimeMs || 800);
+        setHoldProgress(state.progress);
         setHint('Coloca tu mano dentro del encuadre');
         return;
       }
 
       const isMirrored = settings.handDominance === 'Right';
-      // Pasamos targetSign.letter para tolerancia y clasificación específica de nivel
-      const result = GestureClassifier.classify(landmarks, isMirrored, targetSign.letter);
+      // Reconocimiento independiente de la letra que pide el juego.
+      const result = GestureClassifier.classify(landmarks, isMirrored, targetSign.letter, getCalibration(isMirrored));
+      samplesRef.current.add(now, landmarks, result?.letter || null);
 
       if (result) {
         setDetectedLetter(result.letter);
-        setConfidence(result.confidence);
         setHint(result.hint);
 
-        // Si la letra coincide con el objetivo del nivel
-        if (result.letter === targetSign.letter && !isSuccess) {
-          lastSuccessFrameTimeRef.current = now;
-          if (!holdStartTimeRef.current) {
-            holdStartTimeRef.current = now;
-          }
-
-          const elapsed = now - holdStartTimeRef.current;
-          // Tiempo de retención más amigable para señas con auto-oclusión (G, H, M, N, P, R, S, T)
-          const isComplexOcclusion = ['G', 'H', 'M', 'N', 'P', 'R', 'S', 'T'].includes(targetSign.letter);
-          const baseHoldTime = settings.holdTimeMs || 800;
-          const targetHoldTime = isComplexOcclusion ? Math.min(baseHoldTime, 600) : baseHoldTime;
-
-          const progress = Math.min(100, Math.round((elapsed / targetHoldTime) * 100));
-          setHoldProgress(progress);
-
-          if (elapsed >= targetHoldTime) {
-            triggerSuccessCelebration();
-          }
-        } else {
-          // Si hubo una pérdida momentánea de un fotograma (flicker), damos una ventana de gracia de 300ms
-          if (now - lastSuccessFrameTimeRef.current > 300) {
-            setHoldProgress(0);
-            holdStartTimeRef.current = null;
-          }
-        }
+        const state = holdEngineRef.current.process(result.letter, targetSign.letter, now, settings.holdTimeMs || 800);
+        setHoldProgress(state.progress);
+        if (state.confirmed && !isSuccess) triggerSuccessCelebration();
       } else {
         setDetectedLetter(null);
-        setConfidence(0);
-        if (now - lastSuccessFrameTimeRef.current > 300) {
-          setHoldProgress(0);
-          holdStartTimeRef.current = null;
-        }
-        setHint('Ajusta la posición de los dedos según la foto objetivo');
+        setHoldProgress(holdEngineRef.current.process(null, targetSign.letter, now, settings.holdTimeMs || 800).progress);
+        setHint('Postura no reconocida. Ajusta los dedos o gira ligeramente la mano.');
       }
     },
     [isSuccess, settings.handDominance, settings.holdTimeMs, targetSign.letter, triggerSuccessCelebration]
@@ -201,7 +193,22 @@ export const AcademyGameView: React.FC<AcademyGameViewProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Columna Izquierda: Visión de Cámara */}
         <div className="lg:col-span-7 space-y-4">
-          <CameraView onLandmarksDetected={handleLandmarks} isMirrored={settings.handDominance === 'Right'} />
+          <CameraView key={settings.handDominance} onLandmarksDetected={handleLandmarks} isMirrored={settings.handDominance === 'Right'} />
+
+          <div className="rounded-2xl border border-slate-700 bg-slate-800/80 p-4 text-sm text-slate-300">
+            <button className="rounded-lg bg-slate-700 px-3 py-2 text-white hover:bg-slate-600" onClick={() => {
+              const json = samplesRef.current.snapshot(targetSign.letter, settings.handDominance, getCalibration(settings.handDominance === 'Right'));
+              if (!json) { setSampleMessage('No hay medidas de una mano completa en los últimos segundos. Completa el escaneo si falta y activa Ver puntos para revisar el encuadre.'); return; }
+              const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+              const link = document.createElement('a');
+              link.href = url; link.download = 'intento-' + targetSign.letter.toLowerCase() + '.json';
+              document.body.appendChild(link); link.click(); link.remove();
+              window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+              setSampleMessage('Muestra guardada en tu equipo. No se envió a ningún servidor.');
+            }}>Guardar muestra del intento</button>
+            <p className="mt-2 text-xs">Si una letra falla, guarda los últimos segundos de mediciones para revisarla. Incluye posiciones de los puntos, mano y objetivo; no incluye fotos ni video.</p>
+            <p role="status" className="mt-1 text-xs text-sky-300">{sampleMessage}</p>
+          </div>
 
           {/* Tarjeta de Retroalimentación en Tiempo Real */}
           <div className={`p-4 rounded-2xl border transition-all duration-300 ${
@@ -217,12 +224,12 @@ export const AcademyGameView: React.FC<AcademyGameViewProps> = ({
               </span>
               {detectedLetter && (
                 <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-700 text-slate-200 font-mono">
-                  Letra detectada: <strong className="text-sky-400">{detectedLetter}</strong> ({Math.round(confidence * 100)}%)
+                  Letra detectada: <strong className="text-sky-400">{detectedLetter}</strong>
                 </span>
               )}
             </div>
 
-            <p className="text-sm font-semibold mb-3 flex items-center gap-2">
+            <p role="status" className="text-sm font-semibold mb-3 flex items-center gap-2">
               {isSuccess ? (
                 <>
                   <CheckCircle2 className="w-5 h-5 text-emerald-400" />

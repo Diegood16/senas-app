@@ -7,6 +7,7 @@ export class DebounceEngine {
   private candidateLetter: string | null = null;
   private candidateStartTime: number = 0;
   private lastEmittedLetter: string | null = null;
+  private absenceStart: number | null = null;
   private config: DebounceConfig;
 
   constructor(config: Partial<DebounceConfig> = {}) {
@@ -27,12 +28,15 @@ export class DebounceEngine {
   ): { confirmedLetter: string | null; holdProgress: number } {
     if (!detectedLetter || confidence < this.config.confidenceThreshold) {
       // Si la mano se relajó o cambió a postura irreconocible, permitimos volver a emitir la letra anterior
-      if (now - this.candidateStartTime > 600) {
+      this.absenceStart ??= now;
+      if (now - this.absenceStart >= 600) {
         this.lastEmittedLetter = null;
       }
       this.candidateLetter = null;
       return { confirmedLetter: null, holdProgress: 0 };
     }
+
+    this.absenceStart = null;
 
     // Si cambió la letra candidata
     if (detectedLetter !== this.candidateLetter) {
@@ -57,6 +61,7 @@ export class DebounceEngine {
   }
 
   public reset(): void {
+    this.absenceStart = null;
     this.candidateLetter = null;
     this.candidateStartTime = 0;
     this.lastEmittedLetter = null;

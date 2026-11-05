@@ -1,4 +1,4 @@
-# Plataforma Gamificada e Inclusiva de Aprendizaje de Dactilología (Lengua de Señas)
+# SeñaLink — Plataforma Gamificada e Inclusiva de Aprendizaje de Dactilología
 
 > Proyecto de innovación social, accesibilidad tecnológica y educación inclusiva para derribar las barreras de comunicación entre la Comunidad Sorda y personas oyentes.
 
@@ -29,6 +29,16 @@ El documento maestro de arquitectura de software, especificación de tecnología
 ---
 
 ## 💻 Cómo Ejecutar el Proyecto en tu Computadora
+
+### Calibración y verificación
+
+Al entrar en Academia o Transcriptor, selecciona tu mano y muestra la palma abierta con los dedos extendidos. El escaneo general mide palma, proporciones de los cinco dedos y tamaño aparente de referencia, sin pedir letras. Mantén la mano quieta hasta completar la barra. Usa **Ver puntos** para revisar el seguimiento y **Recalibrar** si cambian las condiciones. Las medidas se conservan únicamente mientras esta página permanece abierta. La distancia es relativa al tamaño aparente de la palma; no se mide en centímetros.
+
+Las posturas ambiguas entre varias letras no se confirman. Los cálculos corrigen la relación de aspecto de la cámara y utilizan ángulos de articulación y distancias relativas a la mano, en vez de píxeles fijos. Esta mejora todavía no tiene una precisión medida con personas; no garantiza un 98 % de acierto.
+
+En el Transcriptor, pulsa **Comenzar** después del escaneo. Elige ritmo ágil (0,5 s), normal (0,7 s) o pausado (1,1 s), según tu comodidad. Para repetir una letra, retira la mano unos 0,7 s o pulsa **Repetir letra**; para separar palabras, retírala 1,6 s o usa **Espacio**. **Pausar** conserva el texto y editar la pizarra pausa la captura. Si cambia la persona, vuelve a calibrar. **Guardar muestra del transcriptor** descarga mediciones locales de hasta 12 segundos para revisar errores; el texto esperado es opcional y no entrena al sistema.
+
+Ejecuta `npm test` para las comprobaciones sintéticas y `npm run build` para verificar la compilación. Consulta [VERIFICACION.md](./VERIFICACION.md) para conocer resultados y límites.
 
 1. Abre tu terminal en la carpeta del proyecto:
    ```bash

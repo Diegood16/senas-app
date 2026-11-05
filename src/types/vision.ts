@@ -4,7 +4,8 @@ export interface Landmark3D {
   z: number; // Profundidad relativa
 }
 
-export type HandLandmarks = Landmark3D[];
+export type HandLandmarks = Landmark3D[] & { aspectRatio?: number };
+export type CameraTrackingState = 'ready' | 'absent' | 'poor-quality' | 'calibrating';
 
 export interface HandDetectionResult {
   landmarks: HandLandmarks[];

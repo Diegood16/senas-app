@@ -1,188 +1,114 @@
 import { Landmark3D, HandLandmarks, AnalyzedHandGeometry, FingerState } from '../types/vision';
 
-/**
- * Normaliza las coordenadas de la mano para hacerlas invariantes a la distancia y posición.
- */
 export class LandmarkNormalizer {
-  /**
-   * Traslada la muñeca al origen (0, 0, 0) y escala la mano a tamaño unitario
-   * basado en la distancia de la muñeca (0) al nudillo del medio (9).
-   */
-  public static normalize(landmarks: HandLandmarks, isMirrored = false): HandLandmarks {
-    if (!landmarks || landmarks.length < 21) return landmarks;
-
-    const wrist = landmarks[0];
-    const middleMCP = landmarks[9];
-
-    // Distancia base para normalización de escala
-    const scale = Math.hypot(
-      middleMCP.x - wrist.x,
-      middleMCP.y - wrist.y,
-      (middleMCP.z || 0) - (wrist.z || 0)
-    ) || 1.0;
-
-    return landmarks.map(point => {
-      let x = (point.x - wrist.x) / scale;
-      const y = (point.y - wrist.y) / scale;
-      const z = ((point.z || 0) - (wrist.z || 0)) / scale;
-
-      if (isMirrored) {
-        x = -x;
-      }
-
-      return { x, y, z };
-    });
+  public static distance(a: Landmark3D, b: Landmark3D): number {
+    return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
   }
 
-  /**
-   * Distancia euclidiana 3D entre dos puntos.
-   */
-  public static distance(p1: Landmark3D, p2: Landmark3D): number {
-    return Math.hypot(p1.x - p2.x, p1.y - p2.y, (p1.z || 0) - (p2.z || 0));
+  /** Image x and z use width units; y uses height units. Convert before measuring. */
+  public static metric(points: HandLandmarks): HandLandmarks {
+    const aspect = points.aspectRatio || 1;
+    return points.map(p => ({ x: p.x, y: p.y / aspect, z: p.z }));
   }
 
-  /**
-   * Determina si un dedo está extendido o doblado en base a sus articulaciones:
-   * MCP (base), PIP (intermedia), DIP (alta), TIP (punta).
-   */
-  private static checkFingerState(
-    wrist: Landmark3D,
-    mcp: Landmark3D,
-    pip: Landmark3D,
-    tip: Landmark3D
-  ): FingerState {
-    const distTipToWrist = this.distance(tip, wrist);
-    const distPipToWrist = this.distance(pip, wrist);
-    const distMcpToWrist = this.distance(mcp, wrist);
-
-    // Si la punta está significativamente más lejos de la muñeca que la articulación intermedia
-    const isExtended = distTipToWrist > distPipToWrist * 1.12 && distTipToWrist > distMcpToWrist;
-    const curl = Math.max(0, Math.min(1, (distPipToWrist * 1.3 - distTipToWrist) / (distPipToWrist * 0.8)));
-
-    return { isExtended, curl };
+  public static palmSize(points: HandLandmarks): number {
+    const p = this.metric(points);
+    return (this.distance(p[0], p[9]) + this.distance(p[5], p[17])) / 2;
   }
 
-  /**
-   * Extrae la anatomía completa de la mano para clasificar señas.
-   */
-  public static analyzeGeometry(rawLandmarks: HandLandmarks): AnalyzedHandGeometry {
-    const wrist = rawLandmarks[0];
+  public static normalize(points: HandLandmarks, mirrored = false): HandLandmarks {
+    if (points.length !== 21) return points;
+    const p = this.metric(points);
+    // Combining palm width and length is less dependent on a single projected axis.
+    const scale = (this.distance(p[0], p[9]) + this.distance(p[5], p[17])) / 2 || 1;
+    return p.map(v => ({ x: (v.x - p[0].x) / scale * (mirrored ? -1 : 1), y: (v.y - p[0].y) / scale, z: (v.z - p[0].z) / scale }));
+  }
 
-    // Pulgar (1: CMC, 2: MCP, 3: IP, 4: TIP)
-    const thumbTip = rawLandmarks[4];
-    const thumbMcp = rawLandmarks[2];
-    const indexMcp = rawLandmarks[5];
-    const indexTip = rawLandmarks[8];
-    const middleMcp = rawLandmarks[9];
-    const middleTip = rawLandmarks[12];
-    const ringMcp = rawLandmarks[13];
+  public static fingerLength(p: HandLandmarks, start: number): number {
+    return this.distance(p[start], p[start + 1]) + this.distance(p[start + 1], p[start + 2]) + this.distance(p[start + 2], p[start + 3]);
+  }
 
-    const distThumbToIndexMcp = this.distance(thumbTip, indexMcp);
-    const distThumbToWrist = this.distance(thumbTip, wrist);
-    const isThumbExtended = distThumbToWrist > this.distance(thumbMcp, wrist) * 1.15 && distThumbToIndexMcp > 0.35;
+  private static segmentDistance(p: Landmark3D, a: Landmark3D, b: Landmark3D): number {
+    const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+    const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy + (p.z - a.z) * dz) / (dx * dx + dy * dy + dz * dz || 1)));
+    return this.distance(p, { x: a.x + t * dx, y: a.y + t * dy, z: a.z + t * dz });
+  }
 
-    // Índice (5: MCP, 6: PIP, 7: DIP, 8: TIP)
-    const indexState = this.checkFingerState(wrist, rawLandmarks[5], rawLandmarks[6], rawLandmarks[8]);
-    // Medio (9: MCP, 10: PIP, 11: DIP, 12: TIP)
-    const middleState = this.checkFingerState(wrist, rawLandmarks[9], rawLandmarks[10], rawLandmarks[12]);
-    // Anular (13: MCP, 14: PIP, 15: DIP, 16: TIP)
-    const ringState = this.checkFingerState(wrist, rawLandmarks[13], rawLandmarks[14], rawLandmarks[16]);
-    // Meñique (17: MCP, 18: PIP, 19: DIP, 20: TIP)
-    const pinkyState = this.checkFingerState(wrist, rawLandmarks[17], rawLandmarks[18], rawLandmarks[20]);
+  private static angle(a: Landmark3D, b: Landmark3D, c: Landmark3D): number {
+    const u = { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
+    const v = { x: c.x - b.x, y: c.y - b.y, z: c.z - b.z };
+    const denominator = Math.hypot(u.x, u.y, u.z) * Math.hypot(v.x, v.y, v.z);
+    return denominator < 1e-8 ? 0 : Math.acos(Math.max(-1, Math.min(1, (u.x * v.x + u.y * v.y + u.z * v.z) / denominator))) * 180 / Math.PI;
+  }
 
-    // Distancias clave entre puntas
+  private static finger(p: HandLandmarks, start: number): FingerState {
+    // Joint angles work with fingers pointing up, sideways or down; wrist distance does not.
+    const pip = this.angle(p[start], p[start + 1], p[start + 2]);
+    const dip = this.angle(p[start + 1], p[start + 2], p[start + 3]);
+    const reach = this.distance(p[start], p[start + 3]) / Math.max(1e-6, this.fingerLength(p, start));
+    const curl = Math.max(0, Math.min(1, (1 - reach) * 1.4 + (180 - pip) / 240 + (180 - dip) / 480));
+    return { isExtended: pip > 145 && dip > 140 && reach > 0.82, curl };
+  }
+
+  public static analyzeGeometry(p: HandLandmarks): AnalyzedHandGeometry {
+    const index = this.finger(p, 5), middle = this.finger(p, 9), ring = this.finger(p, 13), pinky = this.finger(p, 17);
+    const thumbAngle = this.angle(p[1], p[2], p[3]);
+    const thumb = { isExtended: thumbAngle > 140 && this.distance(p[4], p[5]) > 0.35, curl: Math.max(0, Math.min(1, (180 - thumbAngle) / 100)) };
+    // Hand-local lateral coordinate: index knuckle = 0, little-finger knuckle = 1.
+    // This does not assume that thumb is at the left of the screen.
+    const lateral = { x: p[17].x - p[5].x, y: p[17].y - p[5].y, z: p[17].z - p[5].z };
+    const width2 = lateral.x ** 2 + lateral.y ** 2 + lateral.z ** 2 || 1;
+    const slot = (v: Landmark3D) => ((v.x - p[5].x) * lateral.x + (v.y - p[5].y) * lateral.y + (v.z - p[5].z) * lateral.z) / width2;
+    const along = (v: Landmark3D) => ((v.x - p[0].x) * p[9].x + (v.y - p[0].y) * p[9].y + (v.z - p[0].z) * p[9].z) / (this.distance(p[0], p[9]) ** 2 || 1);
+    const unitLateral = { x: lateral.x / Math.sqrt(width2), y: lateral.y / Math.sqrt(width2), z: lateral.z / Math.sqrt(width2) };
+    const lateralDot = p[9].x * unitLateral.x + p[9].y * unitLateral.y + p[9].z * unitLateral.z;
+    const palmUp = { x: p[9].x - lateralDot * unitLateral.x, y: p[9].y - lateralDot * unitLateral.y, z: p[9].z - lateralDot * unitLateral.z };
+    const upLength = Math.hypot(palmUp.x, palmUp.y, palmUp.z) || 1;
+    const terminal = { x: p[4].x - p[3].x, y: p[4].y - p[3].y, z: p[4].z - p[3].z };
     const distances: Record<string, number> = {
-      thumbToIndexTip: this.distance(thumbTip, rawLandmarks[8]),
-      thumbToMiddleTip: this.distance(thumbTip, rawLandmarks[12]),
-      thumbToRingTip: this.distance(thumbTip, rawLandmarks[16]),
-      thumbToPinkyTip: this.distance(thumbTip, rawLandmarks[20]),
-      indexToMiddleTip: this.distance(rawLandmarks[8], rawLandmarks[12]),
-      middleToRingTip: this.distance(rawLandmarks[12], rawLandmarks[16]),
-      ringToPinkyTip: this.distance(rawLandmarks[16], rawLandmarks[20]),
-      indexTipToWrist: this.distance(rawLandmarks[8], wrist),
-      pinkyTipToWrist: this.distance(rawLandmarks[20], wrist)
+      thumbToIndexTip: this.distance(p[4], p[8]), thumbToMiddleTip: this.distance(p[4], p[12]),
+      thumbToRingTip: this.distance(p[4], p[16]), thumbToPinkyTip: this.distance(p[4], p[20]),
+      indexToMiddleTip: this.distance(p[8], p[12]), middleToRingTip: this.distance(p[12], p[16]), ringToPinkyTip: this.distance(p[16], p[20]),
+      indexTipToWrist: this.distance(p[8], p[0]), pinkyTipToWrist: this.distance(p[20], p[0]),
+      indexLength: this.fingerLength(p, 5), middleLength: this.fingerLength(p, 9),
+      thumbToIndexTip2D: Math.hypot(p[4].x - p[8].x, p[4].y - p[8].y),
+      thumbToMiddleTip2D: Math.hypot(p[4].x - p[12].x, p[4].y - p[12].y),
+      thumbToMiddleSegment: Math.min(...[9, 10, 11].map(i => this.segmentDistance(p[4], p[i], p[i + 1]))),
+      middleReach: this.distance(p[9], p[12]),
+      thumbTerminalAcross: terminal.x * unitLateral.x + terminal.y * unitLateral.y + terminal.z * unitLateral.z,
+      thumbTerminalAlong: (terminal.x * palmUp.x + terminal.y * palmUp.y + terminal.z * palmUp.z) / upLength,
+      thumbAcross: slot(p[4]), thumbAlong: along(p[4]), indexReach: this.distance(p[8], p[5]),
+      tipAlong: (along(p[8]) + along(p[12])) / 2,
+      compactCount: [5, 9, 13, 17].filter(i => this.distance(p[i], p[i + 3]) / Math.max(1e-6, this.fingerLength(p, i)) < 0.42).length
     };
-
-    // Orientaciones vectoriales para letras horizontales (G, H) y hacia abajo (P)
-    const isIndexPointingHorizontal =
-      (indexState.isExtended || distances.indexTipToWrist > 0.7) &&
-      Math.abs(indexTip.x - indexMcp.x) > Math.abs(indexTip.y - indexMcp.y) * 0.7;
-
-    const isMiddlePointingHorizontal =
-      (middleState.isExtended || distances.indexToMiddleTip < 0.25) &&
-      Math.abs(middleTip.x - middleMcp.x) > Math.abs(middleTip.y - middleMcp.y) * 0.7;
-
-    const isIndexPointingDown =
-      (indexState.isExtended || distances.indexTipToWrist > 0.6) &&
-      indexTip.y > indexMcp.y + 0.1;
-
-    const isMiddlePointingDown =
-      (middleState.isExtended || distances.thumbToMiddleTip < 0.4) &&
-      middleTip.y > middleMcp.y + 0.05;
-
-    // Dedos cruzados (Letra R)
-    const isIndexMiddleCrossed =
-      indexState.isExtended &&
-      middleState.isExtended &&
-      (middleTip.x < indexTip.x || distances.indexToMiddleTip < 0.15);
-
-    const isFist =
-      !indexState.isExtended &&
-      !middleState.isExtended &&
-      !ringState.isExtended &&
-      !pinkyState.isExtended;
-
-    const isOpenPalm =
-      indexState.isExtended &&
-      middleState.isExtended &&
-      ringState.isExtended &&
-      pinkyState.isExtended &&
-      isThumbExtended;
-
-    // Determinar la posición del pulgar en puño (A, S, T, N, M, E)
-    let thumbFistSlot: 'A' | 'T' | 'N' | 'M' | 'S' | 'E' | 'NONE' = 'NONE';
+    const isFist = !index.isExtended && !middle.isExtended && !ring.isExtended && !pinky.isExtended;
+    const horizontal = (base: number) => Math.abs(p[base + 3].x - p[base].x) > Math.abs(p[base + 3].y - p[base].y) * 1.25;
+    const indexDown = p[8].y - p[5].y > 0.25 && p[8].y - p[5].y > Math.abs(p[8].x - p[5].x) * 0.5;
+    let thumbFistSlot: AnalyzedHandGeometry['thumbFistSlot'] = 'NONE';
     if (isFist) {
-      const boundaryIndexMiddle = (indexMcp.x + middleMcp.x) / 2;
-      const boundaryMiddleRing = (middleMcp.x + ringMcp.x) / 2;
-
-      // Si el pulgar está al costado exterior (Letra A)
-      if (thumbTip.x < indexMcp.x - 0.08 && isThumbExtended) {
-        thumbFistSlot = 'A';
+      const across = distances.thumbAcross;
+      if (across < -0.12 && thumb.isExtended) thumbFistSlot = 'A';
+      else if (distances.thumbAlong < 0.68 && across >= -0.1 && across <= 0.95) thumbFistSlot = 'S';
+      else if (distances.thumbAlong >= 0.68 && across >= -0.06 && across <= 1.15) {
+        // Locate actual gaps between this hand's knuckles, rather than dividing palm width into thirds.
+        const centers = [(slot(p[5]) + slot(p[9])) / 2, (slot(p[9]) + slot(p[13])) / 2, (slot(p[13]) + slot(p[17])) / 2];
+        const ranked = centers.map((center, i) => ({ letter: (['T', 'N', 'M'] as const)[i], error: Math.abs(across - center) })).sort((a, b) => a.error - b.error);
+        distances.thumbSlotMargin = ranked[1].error - ranked[0].error;
+        if (distances.thumbSlotMargin >= 0.07) thumbFistSlot = ranked[0].letter;
+        else distances.thumbSlotAmbiguous = 1;
       }
-      // Si el pulgar está cruzado por el frente de los nudillos (Letra S)
-      else if (distances.thumbToIndexTip < 0.45 && distances.thumbToMiddleTip < 0.45 && thumbTip.y > -0.8 && thumbTip.y < 0.2) {
-        thumbFistSlot = 'S';
-      }
-      // Si el pulgar está metido entre los dedos (T, N, M)
-      else if (thumbTip.x <= boundaryIndexMiddle) {
-        thumbFistSlot = 'T'; // Entre índice y medio
-      } else if (thumbTip.x <= boundaryMiddleRing) {
-        thumbFistSlot = 'N'; // Entre medio y anular
-      } else {
-        thumbFistSlot = 'M'; // Bajo anular / meñique
-      }
-
-      // Si las puntas están replegadas sobre el pulgar (Letra E)
-      if (distances.thumbToIndexTip < 0.28 && distances.thumbToMiddleTip < 0.32 && !isThumbExtended) {
-        thumbFistSlot = 'E';
-      }
+      if (distances.tipAlong < 1.15 && distances.thumbAlong < 1 && distances.thumbToIndexTip < 0.35 && distances.thumbToMiddleTip < 0.4) thumbFistSlot = 'E';
     }
-
     return {
-      thumb: { isExtended: isThumbExtended, curl: isThumbExtended ? 0 : 1 },
-      index: indexState,
-      middle: middleState,
-      ring: ringState,
-      pinky: pinkyState,
-      isFist,
-      isOpenPalm,
-      isIndexPointingHorizontal,
-      isMiddlePointingHorizontal,
-      isIndexPointingDown,
-      isMiddlePointingDown,
-      isIndexMiddleCrossed,
-      thumbFistSlot,
-      distances
+      thumb, index, middle, ring, pinky, distances, isFist,
+      isOpenPalm: index.isExtended && middle.isExtended && ring.isExtended && pinky.isExtended,
+      isIndexPointingHorizontal: index.isExtended && horizontal(5),
+      isMiddlePointingHorizontal: middle.isExtended && horizontal(9),
+      isIndexPointingDown: index.isExtended && indexDown,
+      isMiddlePointingDown: distances.middleReach / distances.middleLength > 0.45 && p[12].y > p[9].y + 0.2,
+      // Require an actual inversion of fingertip ordering, not merely close fingers.
+      isIndexMiddleCrossed: index.isExtended && middle.isExtended && slot(p[8]) > slot(p[12]) + 0.06,
+      thumbFistSlot
     };
   }
 }

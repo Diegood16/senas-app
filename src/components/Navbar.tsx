@@ -25,7 +25,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-sky-400 via-indigo-200 to-white bg-clip-text text-transparent">
-              SeñasApp <span className="text-xs uppercase px-2 py-0.5 ml-1 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/30">IA Local</span>
+              SeñaLink <span className="text-xs uppercase px-2 py-0.5 ml-1 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/30">IA Local</span>
             </h1>
             <p className="text-xs text-slate-400">Accesibilidad e Inclusión Comunitaria</p>
           </div>
