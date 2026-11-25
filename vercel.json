@@ -1,0 +1,18 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "true",
+  "buildCommand": "mkdir -p dist-html && cp SENAS-APP.html dist-html/index.html && cp SENAS-APP.html dist-html/SENAS-APP.html",
+  "outputDirectory": "dist-html",
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=*"
+        }
+      ]
+    }
+  ]
+}
