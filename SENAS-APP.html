@@ -673,8 +673,18 @@ main { flex: 1; }
   gap: 22px;
   align-items: start;
 }
-.academy-camera-column, .transcription-camera-column { display: grid; gap: 14px; min-width: 0; }
+.academy-camera-column, .transcription-camera-column {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  min-width: 0;
+}
+.academy-camera-column > *, .transcription-camera-column > * {
+  min-width: 0;
+  max-width: 100%;
+}
 .target-card, .board-card, .transcription-tools {
+  min-width: 0;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: linear-gradient(180deg, rgba(17, 34, 58, .94), rgba(11, 23, 41, .97));
@@ -782,11 +792,19 @@ main { flex: 1; }
 .target-footnote { margin-top: 13px; color: var(--muted); font-size: 10.5px; line-height: 1.55; }
 
 /* Panel de cámara */
-.camera-shell { display: grid; gap: 12px; min-width: 0; }
+.camera-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
 .camera-stage {
   position: relative;
+  width: 100%;
   aspect-ratio: 4 / 3;
   min-height: 260px;
+  max-height: 460px;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
@@ -981,9 +999,17 @@ select {
 .candidate-progress .hold-track { height: 8px; }
 .candidate-progress small { display: block; margin-top: 4px; color: var(--muted); font-size: 9.5px; text-align: right; }
 .trans-hint { min-height: 42px; padding: 10px 12px; border-left: 3px solid rgba(63, 198, 255, .6); border-radius: 0 9px 9px 0; background: rgba(63, 198, 255, .055); color: var(--text-soft); font-size: 12px; line-height: 1.55; }
-.strip-card { padding: 13px; border: 1px solid var(--line); border-radius: var(--radius-md); background: rgba(10, 22, 40, .9); }
+.strip-card {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: rgba(10, 22, 40, .9);
+}
 .strip-title { display: block; margin-bottom: 8px; color: var(--muted); font-size: 10px; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
-.reference-strip { display: flex; gap: 7px; overflow-x: auto; padding-bottom: 5px; scrollbar-width: thin; }
+.reference-strip { display: flex; gap: 7px; max-width: 100%; overflow-x: auto; padding-bottom: 5px; scrollbar-width: thin; }
 .reference-item {
   flex: 0 0 auto;
   width: 54px;
@@ -996,7 +1022,7 @@ select {
 .reference-item img { width: 100%; height: 46px; object-fit: contain; }
 .reference-item span { display: block; color: #0d6388; font-size: 10px; font-weight: 900; }
 
-.board-card { position: sticky; top: calc(var(--header-height) + 16px); padding: 20px; display: flex; flex-direction: column; min-height: 520px; }
+.board-card { position: sticky; top: calc(var(--header-height) + 16px); padding: 20px; display: flex; flex-direction: column; min-width: 0; min-height: 460px; }
 .board-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line-soft); }
 .board-head h3 { display: flex; align-items: center; gap: 7px; color: #fff; font-size: 17px; }
 .board-head h3 .icon { color: var(--sky); }
@@ -1510,41 +1536,12 @@ body.high-contrast .board-paper, body.high-contrast .sim-text, body.high-contras
             <span class="feedback-label">Estado de la detección</span>
             <span class="detected-badge" id="academy-detected" hidden>Letra detectada: <strong></strong></span>
           </div>
-          <p class="feedback-hint" id="academy-hint" role="status" aria-live="polite">Activa la cámara o abre la simulación sin cámara.</p>
+          <p class="feedback-hint" id="academy-hint" role="status" aria-live="polite">Activa la cámara para comenzar a practicar.</p>
           <div class="hold-track" role="progressbar" id="academy-progress" aria-label="Tiempo de postura sostenida" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
             <div class="hold-fill" id="academy-progress-fill"></div>
           </div>
           <p class="hold-label" id="academy-progress-text" aria-hidden="true">0 %</p>
         </div>
-
-        <div class="sample-card">
-          <button class="btn btn-secondary btn-small" id="academy-sample" type="button">
-            <svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg><span>Guardar muestra del intento</span>
-          </button>
-          <p>Descarga voluntaria de los últimos segundos de mediciones: puntos, mano, objetivo y perfil. No incluye fotos ni video y no se envía automáticamente.</p>
-          <p class="sample-status" id="academy-sample-msg" role="status" aria-live="polite"></p>
-        </div>
-
-        <details class="sim-panel" id="academy-sim-panel">
-          <summary><svg class="icon" aria-hidden="true"><use href="#i-flask"></use></svg>Probar sin cámara (simulación)<span class="sim-badge">Datos simulados</span></summary>
-          <div class="sim-body">
-            <p>Ejecuta secuencias con posturas generadas matemáticamente y el mismo clasificador y motor de retención. No usa la cámara, no modifica tu puntuación y no demuestra precisión con manos reales.</p>
-            <div class="sim-controls">
-              <button class="btn btn-secondary" type="button" data-academy-sim="valid">Postura válida A</button>
-              <button class="btn btn-secondary" type="button" data-academy-sim="ambiguous">Lectura ambigua D/P</button>
-              <button class="btn btn-secondary" type="button" data-academy-sim="brief">Pérdida breve</button>
-              <button class="btn btn-secondary" type="button" data-academy-sim="target">Objetivo B con postura A</button>
-            </div>
-            <div class="sim-output">
-              <span class="sim-output-label">Letra observada</span>
-              <span class="sim-letter" id="academy-sim-letter" aria-hidden="true">—</span>
-              <span class="sr-only" id="academy-sim-letter-sr">Sin lectura</span>
-              <div class="sim-progress" aria-hidden="true"><span id="academy-sim-progress"></span></div>
-              <span class="sim-output-label" id="academy-sim-status" role="status" aria-live="polite">Listo.</span>
-            </div>
-            <ol class="sim-log" id="academy-sim-log" aria-label="Registro de la simulación"></ol>
-          </div>
-        </details>
       </div>
 
       <aside class="target-card" aria-labelledby="academy-target-heading">
@@ -1643,40 +1640,10 @@ body.high-contrast .board-paper, body.high-contrast .sim-text, body.high-contras
 
         <p class="trans-hint" id="trans-hint" role="status" aria-live="polite">Completa el escaneo y pulsa Comenzar.</p>
 
-        <div class="sample-card compact">
-          <label for="trans-expected">Texto que intentabas deletrear (opcional, para revisar fallos)</label>
-          <input id="trans-expected" type="text" maxlength="80" placeholder="Por ejemplo: HOLA" autocomplete="off">
-          <div class="control-row" style="margin-top:8px">
-            <button class="btn btn-secondary btn-small" id="trans-sample" type="button">
-              <svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg><span>Guardar muestra del transcriptor</span>
-            </button>
-          </div>
-          <p>Guarda hasta 12 segundos de puntos y resultados, el texto esperado y la pizarra actual. Sin fotos ni video. El texto esperado no modifica el reconocimiento ni entrena al sistema.</p>
-          <p class="sample-status" id="trans-sample-msg" role="status" aria-live="polite"></p>
-        </div>
-
         <div class="strip-card">
           <span class="strip-title">Guía visual rápida para deletrear</span>
           <div class="reference-strip" id="trans-strip" aria-label="Referencia visual de letras"></div>
         </div>
-
-        <details class="sim-panel" id="trans-sim-panel">
-          <summary><svg class="icon" aria-hidden="true"><use href="#i-flask"></use></svg>Probar sin cámara (simulación)<span class="sim-badge">Datos simulados</span></summary>
-          <div class="sim-body">
-            <p>Estas secuencias usan puntos sintéticos y el mismo motor temporal. La pizarra real no se modifica; la simulación tiene su propia salida. Sirve para demostrar duplicados, pausas, edición, espacios y lecturas ambiguas.</p>
-            <div class="sim-controls">
-              <button class="btn btn-secondary" type="button" data-trans-sim="full">Secuencia completa</button>
-              <button class="btn btn-secondary" type="button" data-trans-sim="ambiguous">Ambigua conserva texto</button>
-              <button class="btn btn-secondary" type="button" data-trans-sim="brief">Pérdida breve</button>
-              <button class="btn btn-secondary" type="button" data-trans-sim="repeat">Repetir letra</button>
-              <button class="btn btn-secondary" type="button" data-trans-sim="edit">Pausa y edición</button>
-              <button class="btn btn-secondary" type="button" data-trans-sim="space">Espacio automático</button>
-            </div>
-            <div class="sim-text" id="trans-sim-text" aria-label="Texto simulado">—</div>
-            <p class="control-note" id="trans-sim-status" role="status" aria-live="polite">Listo. Elige una secuencia simulada.</p>
-            <ol class="sim-log" id="trans-sim-log" aria-label="Registro de la simulación del transcriptor"></ol>
-          </div>
-        </details>
       </div>
 
       <div class="board-card" aria-labelledby="board-title">
@@ -1768,10 +1735,6 @@ body.high-contrast .board-paper, body.high-contrast .sim-text, body.high-contras
       </ul>
       <p>Si esos recursos fallan, el diccionario sigue funcionando y las vistas de cámara muestran un error con opción de reintentar. Los recursos no se cargan al abrir la página ni al recorrer el diccionario.</p>
     </section>
-    <section class="dialog-section">
-      <h3><svg class="icon" aria-hidden="true"><use href="#i-flask"></use></svg>Simulación sin cámara</h3>
-      <p>Academia y Transcriptor incluyen una sección claramente marcada como <strong>datos simulados</strong>. Usa posturas generadas matemáticamente y los mismos motores para demostrar la retención, el rechazo de ambigüedades, la supresión de duplicados y la conservación del texto. No sustituye una prueba con cámara real.</p>
-    </section>
   </div>
 </dialog>
 
@@ -1806,7 +1769,7 @@ body.high-contrast .board-paper, body.high-contrast .sim-text, body.high-contras
         <button class="btn btn-primary" type="button" data-action="retry">
           <svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg><span>Reintentar</span>
         </button>
-        <p class="privacy-line">También puedes usar la simulación sin cámara que aparece más abajo.</p>
+        <p class="privacy-line">Revisa los permisos de cámara del navegador o vuelve a intentarlo.</p>
       </div>
 
       <div class="camera-active-bar" hidden data-layer="active">
@@ -3536,7 +3499,7 @@ body.high-contrast .board-paper, body.high-contrast .sim-text, body.high-contras
       if (name === 'NotFoundError' || name === 'DevicesNotFoundError' || name === 'OverconstrainedError') {
         return {
           title: 'No se encontró una cámara compatible',
-          detail: 'Conecta una cámara web o revisa que el dispositivo tenga una cámara disponible. También puedes usar la simulación sin cámara.' + embeddedNote
+          detail: 'Conecta una cámara web o revisa que el dispositivo tenga una cámara disponible.' + embeddedNote
         };
       }
       if (name === 'NotReadableError' || name === 'TrackStartError' || name === 'AbortError') {
@@ -3553,7 +3516,7 @@ body.high-contrast .board-paper, body.high-contrast .sim-text, body.high-contras
       }
       return {
         title: 'No se pudo iniciar la cámara',
-        detail: 'Revisa la conexión, los permisos y la cámara del dispositivo. También puedes reintentar o usar la simulación.' + embeddedNote
+        detail: 'Revisa la conexión, los permisos y la cámara del dispositivo, y vuelve a intentarlo.' + embeddedNote
       };
     }
 
@@ -4160,7 +4123,7 @@ body.high-contrast .board-paper, body.high-contrast .sim-text, body.high-contras
     bestStreak: 0,
     completed: new Set(),
     detected: null,
-    hint: 'Activa la cámara o abre la simulación sin cámara.',
+    hint: 'Activa la cámara para comenzar a practicar.',
     holdProgress: 0,
     isSuccess: false,
     successLock: false,
@@ -4212,7 +4175,9 @@ body.high-contrast .board-paper, body.high-contrast .sim-text, body.high-contras
         const chip = event.target.closest('[data-index]');
         if (chip) this.selectIndex(Number(chip.getAttribute('data-index')));
       });
-      this.els.sample.addEventListener('click', () => this.saveSample());
+      if (this.els.sample) {
+        this.els.sample.addEventListener('click', () => this.saveSample());
+      }
       $$('[data-academy-sim]').forEach(button => {
         button.addEventListener('click', () => this.runSimulation(button.getAttribute('data-academy-sim')));
       });
@@ -4220,7 +4185,7 @@ body.high-contrast .board-paper, body.high-contrast .sim-text, body.high-contras
       this.camera = new CameraPanel(byId('academy-camera'), {
         onFrame: (landmarks, tracking) => this.onFrame(landmarks, tracking),
         onRecalibrate: () => this.resetEvaluation('Calibración reiniciada. Muestra la palma abierta y mantén la mano quieta.'),
-        onStop: () => this.resetEvaluation('Cámara detenida. Puedes activarla de nuevo o usar la simulación sin cámara.')
+        onStop: () => this.resetEvaluation('Cámara detenida. Actívala de nuevo para seguir practicando.')
       });
 
       this.selectIndex(0, { force: true, quiet: true });
@@ -4258,7 +4223,7 @@ body.high-contrast .board-paper, body.high-contrast .sim-text, body.high-contras
       if (!options.quiet) {
         this.hint = this.camera && this.camera.active
           ? 'Muestra tu mano frente a la cámara y mantén la postura.'
-          : 'Activa la cámara o abre la simulación sin cámara.';
+          : 'Activa la cámara para comenzar a practicar.';
       }
       this.renderAll();
       if (!options.quiet) announce('Letra objetivo: ' + this.target().letter + '. ' + this.target().name + '.');
@@ -4419,7 +4384,7 @@ body.high-contrast .board-paper, body.high-contrast .sim-text, body.high-contras
       this.renderStats();
       this.renderPicker();
       this.renderFeedback();
-      this.els.sampleMessage.textContent = '';
+      if (this.els.sampleMessage) this.els.sampleMessage.textContent = '';
       hapticSuccess();
       if (SETTINGS.speechEnabled) Speech.speak('¡Excelente! Letra ' + sign.letter + ' completada.');
       launchConfetti();
@@ -4558,11 +4523,15 @@ body.high-contrast .board-paper, body.high-contrast .sim-text, body.high-contras
       this.els.toggle.addEventListener('click', () => this.toggleRecording());
       this.els.pace.addEventListener('change', () => this.setPace(Number(this.els.pace.value)));
       this.els.repeat.addEventListener('click', () => this.repeatLetter());
-      this.els.expected.addEventListener('focus', () => this.pauseForEditing());
-      this.els.expected.addEventListener('input', () => {
-        this.expectedText = this.els.expected.value.slice(0, 80);
-      });
-      this.els.sample.addEventListener('click', () => this.saveSample());
+      if (this.els.expected) {
+        this.els.expected.addEventListener('focus', () => this.pauseForEditing());
+        this.els.expected.addEventListener('input', () => {
+          this.expectedText = this.els.expected.value.slice(0, 80);
+        });
+      }
+      if (this.els.sample) {
+        this.els.sample.addEventListener('click', () => this.saveSample());
+      }
       this.els.board.addEventListener('focus', () => this.pauseForEditing());
       this.els.board.addEventListener('input', () => {
         const wasPaused = this.isPaused;
