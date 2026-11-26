@@ -1424,7 +1424,7 @@ body.high-contrast .board-paper, body.high-contrast .sim-text, body.high-contras
       <button class="tool-button icon-only" id="contrast-toggle" type="button" aria-pressed="false" title="Alternar alto contraste" aria-label="Alternar alto contraste">
         <svg class="icon" aria-hidden="true"><use href="#i-eye"></use></svg>
       </button>
-      <button class="tool-button icon-only" id="help-open" type="button" title="Ayuda, privacidad y Google Sites" aria-label="Ayuda, privacidad y Google Sites">
+      <button class="tool-button icon-only" id="help-open" type="button" title="Ayuda y privacidad" aria-label="Ayuda y privacidad">
         <svg class="icon" aria-hidden="true"><use href="#i-help"></use></svg>
       </button>
     </div>
@@ -1696,7 +1696,7 @@ body.high-contrast .board-paper, body.high-contrast .sim-text, body.high-contras
 
 <dialog id="help-dialog" aria-labelledby="help-title">
   <div class="dialog-head">
-    <h2 id="help-title">Ayuda, privacidad y Google Sites</h2>
+    <h2 id="help-title">Ayuda y privacidad</h2>
     <button class="dialog-close" id="help-close" type="button" aria-label="Cerrar ayuda"><svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg></button>
   </div>
   <div class="dialog-body">
@@ -1713,18 +1713,6 @@ body.high-contrast .board-paper, body.high-contrast .sim-text, body.high-contras
       <h3><svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg>Privacidad y límites</h3>
       <p>No se envían video, fotogramas, mediciones, texto ni muestras a terceros. Las descargas de diagnóstico son voluntarias y se generan localmente. La lectura por voz usa la síntesis del navegador. No se promete un porcentaje de precisión y la calibración no elimina sesgos ni diferencias de movilidad, iluminación o perspectiva.</p>
       <p>Las ilustraciones son referencias del alfabeto manual ASL incluidas en el repositorio; no representan LSCh ni una lengua de señas completa. El catálogo de consulta tiene 26 letras; 21 están habilitadas para reconocimiento y cinco (J, K, Q, X y Z) son solo consulta visual. No se inventa reconocimiento para letras fuera del conjunto habilitado.</p>
-    </section>
-    <section class="dialog-section">
-      <h3><svg class="icon" aria-hidden="true"><use href="#i-external"></use></svg>Abrir fuera de Google Sites</h3>
-      <div class="dialog-callout">No se ha probado esta aplicación dentro de Google Sites y no se declara ese comportamiento como verificado. Google Sites puede limitar la cámara, el acceso a WebAssembly o los permisos dentro del contenido incrustado. Si la cámara falla, abre este mismo HTML en una pestaña propia desde una URL HTTPS.</div>
-      <p style="margin-top:9px">No se inventa ni se conoce una URL pública. Si ya publicaste este archivo en HTTPS, pega su dirección:</p>
-      <form class="dialog-form" id="sites-form" novalidate>
-        <label class="sr-only" for="sites-url">Dirección HTTPS de esta aplicación</label>
-        <input id="sites-url" type="url" inputmode="url" placeholder="https://ejemplo.com/senalink-google-sites.html" autocomplete="url">
-        <button class="btn btn-primary" type="submit"><svg class="icon" aria-hidden="true"><use href="#i-external"></use></svg><span>Abrir en pestaña nueva</span></button>
-        <button class="btn btn-secondary" id="sites-current" type="button"><svg class="icon" aria-hidden="true"><use href="#i-external"></use></svg><span>Abrir esta página</span></button>
-      </form>
-      <p class="dialog-message" id="sites-message" role="status" aria-live="polite"></p>
     </section>
     <section class="dialog-section">
       <h3><svg class="icon" aria-hidden="true"><use href="#i-info"></use></svg>Requisitos técnicos e internet</h3>
@@ -1800,17 +1788,6 @@ body.high-contrast .board-paper, body.high-contrast .sim-text, body.high-contras
         </div>
       </div>
     </div>
-
-    <details class="sites-note">
-      <summary>Google Sites, cámara y pestaña propia</summary>
-      <div class="sites-note-body">
-        <p>No se ha probado dentro de Google Sites. El contenido incrustado puede bloquear la cámara, los permisos o WebAssembly. Si ocurre, abre este mismo HTML en una pestaña propia desde una URL HTTPS.</p>
-        <div class="sites-note-actions">
-          <button class="btn btn-secondary btn-small" type="button" data-action="open-tab"><svg class="icon" aria-hidden="true"><use href="#i-external"></use></svg><span>Abrir en pestaña nueva</span></button>
-          <button class="btn btn-ghost btn-small" type="button" data-action="sites-help"><svg class="icon" aria-hidden="true"><use href="#i-help"></use></svg><span>Abrir ayuda</span></button>
-        </div>
-      </div>
-    </details>
   </div>
 </template>
 
